@@ -29,9 +29,15 @@ app.use(
 //   return getUserFromToken(token);
 // }
 function getUserFromToken(token) {
-  const userInfo = jwt.verify(token, secret);
-  return User.findById(userInfo.id);
+  try {
+    if (!token) return null;
+    const userInfo = jwt.verify(token, secret);
+    return User.findById(userInfo.id);
+  } catch (err) {
+    return null;
+  }
 }
+
 const URI = process.env.MONGODB_URI;
 await mongoose
   .connect(URI)
@@ -132,6 +138,84 @@ app.get("/comments/root/:rootId", (req, res) => {
   Comment.find({ rootId: req.params.rootId }).sort({ postedAt: -1 }).then((comments) => {
     res.json(comments);
   });
+});
+app.post("/comments/:id/upvote", async (req, res) => {
+  try {
+    const token = req.cookies.token;
+    const user = await getUserFromToken(token);
+
+    if (!user) return res.status(401).json({ error: "Unauthorised" });
+
+    const comment = await Comment.findById(req.params.id);
+    if (!comment) return res.status(404).json({ error: "Not found" });
+
+    if (!comment.voters) comment.voters = [];
+    if (!comment.likes) comment.likes = 0;
+    if (!comment.dislikes) comment.dislikes = 0;
+
+    const existing = comment.voters.find(
+      (v) => v.userId.toString() === user._id.toString()
+    );
+
+    if (!existing) {
+      comment.likes += 1;
+      comment.voters.push({ userId: user._id, vote: "up" });
+    } 
+    else if (existing.vote === "down") {
+      comment.dislikes = Math.max(0, comment.dislikes - 1);
+      comment.likes += 1;
+      existing.vote = "up";
+    } 
+    else {
+      return res.json({ message: "Already upvoted" });
+    }
+
+    await comment.save();
+    res.json(comment);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+
+app.post("/comments/:id/downvote", async (req, res) => {
+  try {
+    const token = req.cookies.token;
+    const user = await getUserFromToken(token);
+
+    if (!user) return res.status(401).json({ error: "Unauthorised" });
+
+    const comment = await Comment.findById(req.params.id);
+    if (!comment) return res.status(404).json({ error: "Not found" });
+
+    if (!comment.voters) comment.voters = [];
+    if (!comment.likes) comment.likes = 0;
+    if (!comment.dislikes) comment.dislikes = 0;
+
+    const existing = comment.voters.find(
+      (v) => v.userId.toString() === user._id.toString()
+    );
+
+    if (!existing) {
+      comment.dislikes += 1;
+      comment.voters.push({ userId: user._id, vote: "down" });
+    } 
+    else if (existing.vote === "up") {
+      comment.likes = Math.max(0, comment.likes - 1);
+      comment.dislikes += 1;
+      existing.vote = "down";
+    } 
+    else {
+      return res.json({ message: "Already downvoted" });
+    }
+
+    await comment.save();
+    res.json(comment);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
 });
 
 app.get("/comments/:id", (req, res) => {
